@@ -13,7 +13,7 @@ namespace OpcUAClient
         private string _serverAddress;
 
         [ObservableProperty]
-        private string _serverPortNumber;
+        private string _serverPort;
 
         [ObservableProperty]
         private string _oPCNameSpace;

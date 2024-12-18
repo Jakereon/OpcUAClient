@@ -18,6 +18,7 @@ namespace OpcUaClient
         // Private Properties
         [ObservableProperty]
         private Settings _settings;
+
         private Session OPCConnection { get; set; }
         private DateTime LastTimeSessionRenewed { get; set; }
         private DateTime LastTimeOPCServerFoundAlive { get; set; }
@@ -28,8 +29,6 @@ namespace OpcUaClient
         // User Access Properties
         public bool InitialisationCompleted;
         public List<Tag> TagList;
-        private bool _connected;
-
         public bool Connected
         {
             get
@@ -47,12 +46,8 @@ namespace OpcUaClient
         /// <summary>
         /// Initializes a new instance of the <see cref="OPCSession"/> class.
         /// </summary>
-        public OPCSession(string serverAddress, string serverPort, List<Tag> tagList, string nameSpace)
+        public OPCSession()
         {
-            Settings.ServerAddress = serverAddress;
-            Settings.ServerPortNumber = serverPort;
-            TagList = tagList;
-            Settings.OPCNameSpace = nameSpace;
             LastTimeOPCServerFoundAlive = DateTime.Now;
 
             InitializeOPCUAClient();
@@ -64,6 +59,39 @@ namespace OpcUaClient
         }
 
         #region Security
+
+        /// <summary>
+        /// Retrieves a list of supported security policies from the server.
+        /// </summary>
+        /// <returns>A list of supported security policies.</returns>
+        public List<string> GetSupportedSecurityPolicies()
+        {
+            if (OPCConnection == null || !OPCConnection.Connected)
+            {
+                throw new InvalidOperationException("OPC connection is not established.");
+            }
+
+            try
+            {
+                // Get the EndpointDescription for the current session
+                var endpoint = OPCConnection.ConfiguredEndpoint;
+
+                if (endpoint != null)
+                {
+                    return endpoint.Description.Server.ApplicationUri != null
+                        ? new List<string> { endpoint.Description.SecurityPolicyUri }
+                        : new List<string>();
+                }
+
+                return new List<string>();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error retrieving security policies: {ex.Message}");
+                return new List<string>();
+            }
+        }
+
 
         // Security Configuration
         public string SelectedSecurityPolicy { get; private set; }
@@ -471,7 +499,7 @@ namespace OpcUaClient
             application.CheckApplicationInstanceCertificate(false, 2048).GetAwaiter().GetResult();
 
             var selectedEndpoint = CoreClientUtils.SelectEndpoint(
-                $"opc.tcp://{Settings.ServerAddress}:{Settings.ServerPortNumber}",
+                $"opc.tcp://{Settings.ServerAddress}:{Settings.ServerPort}",
                 useSecurity: Settings.SecurityEnabled);
 
             OPCConnection = Session.Create(
@@ -850,6 +878,20 @@ namespace OpcUaClient
                 .ToList();
         }
 
+        /// <summary>
+        /// Retrieves the list of namespaces supported by the server.
+        /// </summary>
+        /// <returns>A list of namespaces.</returns>
+        public List<string> GetNamespaces()
+        {
+            if (OPCConnection == null)
+            {
+                throw new InvalidOperationException("OPC connection is not established.");
+            }
+
+            return OPCConnection.NamespaceUris.ToArray().ToList();
+        }
+
 
         /// <summary>
         /// Discovers available OPC UA servers on the network with optional filters.
@@ -933,6 +975,23 @@ namespace OpcUaClient
             {
                 TagList.Remove(tag);
                 SubscribeToDataChanges(); // Re-subscribe to update the monitored items
+            }
+        }
+
+        /// <summary>
+        /// Adjusts the sampling rate for a specific tag.
+        /// </summary>
+        /// <param name="tag">The tag to adjust.</param>
+        /// <param name="newRate">The new sampling rate in milliseconds.</param>
+        public void AdjustSamplingRate(Tag tag, int newRate)
+        {
+            var monitoredItem = OPCConnection.DefaultSubscription?.MonitoredItems
+                .FirstOrDefault(item => item.StartNodeId == tag.NodeID);
+
+            if (monitoredItem != null)
+            {
+                monitoredItem.SamplingInterval = newRate;
+                OPCConnection.DefaultSubscription.ApplyChanges();
             }
         }
 
@@ -1024,6 +1083,23 @@ namespace OpcUaClient
             {
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Reads the value of a tag asynchronously.
+        /// </summary>
+        /// <param name="tag">The tag to read.</param>
+        /// <returns>The value of the tag.</returns>
+        public async Task<object> ReadNodeValueAsync(Tag tag)
+        {
+            if (OPCConnection == null || !OPCConnection.Connected)
+            {
+                throw new InvalidOperationException("OPC connection is not established.");
+            }
+
+            var nodeId = new NodeId(tag.NodeID);
+            var dataValue = await Task.Run(() => OPCConnection.ReadValue(nodeId));
+            return dataValue?.Value;
         }
 
         /// <summary>
@@ -1220,6 +1296,42 @@ namespace OpcUaClient
             OPCConnection.Write(null, writeCollection, out StatusCodeCollection results, out DiagnosticInfoCollection diagnosticInfos);
 
             return results.ToList();
+        }
+
+        /// <summary>
+        /// Writes a value to a tag asynchronously.
+        /// </summary>
+        /// <param name="tag">The tag to write to.</param>
+        /// <param name="value">The value to write.</param>
+        /// <returns>True if the operation succeeds, otherwise false.</returns>
+        public async Task<bool> WriteNodeValueAsync(Tag tag, object value)
+        {
+            if (OPCConnection == null || !OPCConnection.Connected)
+            {
+                throw new InvalidOperationException("OPC connection is not established.");
+            }
+
+            var writeValue = new WriteValue
+            {
+                NodeId = new NodeId(tag.NodeID),
+                AttributeId = Attributes.Value,
+                Value = new DataValue
+                {
+                    Value = value,
+                    StatusCode = StatusCodes.Good,
+                    ServerTimestamp = DateTime.UtcNow,
+                    SourceTimestamp = DateTime.UtcNow
+                }
+            };
+
+            var writeCollection = new WriteValueCollection { writeValue };
+            var results = await Task.Run(() =>
+            {
+                OPCConnection.Write(null, writeCollection, out StatusCodeCollection statusCodes, out DiagnosticInfoCollection _);
+                return statusCodes;
+            });
+
+            return results[0] == StatusCodes.Good;
         }
 
         #endregion
@@ -1460,112 +1572,5 @@ namespace OpcUaClient
         }
 
         #endregion
-
-        //#region ToTest
-
-        ///// <summary>
-        ///// Reads the value of a tag asynchronously.
-        ///// </summary>
-        ///// <param name="tag">The tag to read.</param>
-        ///// <returns>The value of the tag.</returns>
-        //public async Task<object> ReadNodeValueAsync(Tag tag)
-        //{
-        //    if (OPCConnection == null || !OPCConnection.Connected)
-        //    {
-        //        throw new InvalidOperationException("OPC connection is not established.");
-        //    }
-
-        //    var nodeId = new NodeId(tag.NodeID);
-        //    var dataValue = await Task.Run(() => OPCConnection.ReadValue(nodeId));
-        //    return dataValue?.Value;
-        //}
-
-        ///// <summary>
-        ///// Writes a value to a tag asynchronously.
-        ///// </summary>
-        ///// <param name="tag">The tag to write to.</param>
-        ///// <param name="value">The value to write.</param>
-        ///// <returns>True if the operation succeeds, otherwise false.</returns>
-        //public async Task<bool> WriteNodeValueAsync(Tag tag, object value)
-        //{
-        //    if (OPCConnection == null || !OPCConnection.Connected)
-        //    {
-        //        throw new InvalidOperationException("OPC connection is not established.");
-        //    }
-
-        //    var writeValue = new WriteValue
-        //    {
-        //        NodeId = new NodeId(tag.NodeID),
-        //        AttributeId = Attributes.Value,
-        //        Value = new DataValue
-        //        {
-        //            Value = value,
-        //            StatusCode = StatusCodes.Good,
-        //            ServerTimestamp = DateTime.UtcNow,
-        //            SourceTimestamp = DateTime.UtcNow
-        //        }
-        //    };
-
-        //    var writeCollection = new WriteValueCollection { writeValue };
-        //    var results = await Task.Run(() =>
-        //    {
-        //        OPCConnection.Write(null, writeCollection, out StatusCodeCollection statusCodes, out DiagnosticInfoCollection _);
-        //        return statusCodes;
-        //    });
-
-        //    return results[0] == StatusCodes.Good;
-        //}
-
-        ///// <summary>
-        ///// Retrieves a list of supported security policies from the server.
-        ///// </summary>
-        ///// <returns>A list of supported security policies.</returns>
-        //public List<string> GetSupportedSecurityPolicies()
-        //{
-        //    if (OPCConnection == null)
-        //    {
-        //        throw new InvalidOperationException("OPC connection is not established.");
-        //    }
-
-        //    return OPCConnection.EndpointDescription.Server.ApplicationDescription.ServerCapabilities
-        //        .SupportedSecurityPolicies
-        //        .Select(policy => policy.Uri.ToString())
-        //        .ToList();
-        //}
-
-        ///// <summary>
-        ///// Retrieves the list of namespaces supported by the server.
-        ///// </summary>
-        ///// <returns>A list of namespaces.</returns>
-        //public List<string> GetNamespaces()
-        //{
-        //    if (OPCConnection == null)
-        //    {
-        //        throw new InvalidOperationException("OPC connection is not established.");
-        //    }
-
-        //    return OPCConnection.NamespaceUris.ToArray().ToList();
-        //}
-
-
-        ///// <summary>
-        ///// Adjusts the sampling rate for a specific tag.
-        ///// </summary>
-        ///// <param name="tag">The tag to adjust.</param>
-        ///// <param name="newRate">The new sampling rate in milliseconds.</param>
-        //public void AdjustSamplingRate(Tag tag, int newRate)
-        //{
-        //    var monitoredItem = OPCConnection.DefaultSubscription?.MonitoredItems
-        //        .FirstOrDefault(item => item.StartNodeId == tag.NodeID);
-
-        //    if (monitoredItem != null)
-        //    {
-        //        monitoredItem.SamplingInterval = newRate;
-        //        OPCConnection.DefaultSubscription.ApplyChanges();
-        //    }
-        //}
-
-
-        //#endregion
     }
 }
