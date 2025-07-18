@@ -44,17 +44,42 @@ namespace OpcUAClient
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="OPCUAException"/> class with a specified error message, operation, and node.
+        /// Initializes a new instance of the <see cref="OPCUAException"/> class with a message, operation, and inner exception.
         /// </summary>
-        /// <param name="message">The message that describes the error.</param>
-        /// <param name="operation">The OPC UA operation that caused the error.</param>
-        /// <param name="nodeId">The OPC UA node associated with the error.</param>
-        public OPCUAException(string message, string operation, string nodeId)
+        /// <param name="message">The error message.</param>
+        /// <param name="operation">The operation being performed when the error occurred.</param>
+        /// <param name="innerException">The inner exception that caused this exception.</param>
+        public OPCUAException(string message, string operation, Exception innerException)
+            : base(message, innerException)
+        {
+            Operation = operation;
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="OPCUAException"/> class with a specified message and operation.
+        /// </summary>
+        /// <param name="message">The error message.</param>
+        /// <param name="operation">The name of the operation.</param>
+        public OPCUAException(string message, string operation)
             : base(message)
+        {
+            Operation = operation;
+        }
+
+        public OPCUAException(string message, string operation, string nodeId)
+    : base(message)
         {
             Operation = operation;
             NodeId = nodeId;
         }
+
+        public OPCUAException(string message, string operation, string nodeId, Exception innerException)
+    : base(message, innerException)
+        {
+            Operation = operation;
+            NodeId = nodeId;
+        }
+
 
         /// <summary>
         /// Returns a string representation of the exception with detailed context.

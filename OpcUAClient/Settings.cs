@@ -19,6 +19,9 @@ namespace OpcUAClient
         private string _oPCNameSpace;
 
         [ObservableProperty]
+        private string _serverPath;
+
+        [ObservableProperty]
         private bool _sessionRenewalRequired;
 
         [ObservableProperty]
