@@ -211,15 +211,6 @@ namespace OpcUaClient
                 Settings = settings;
                 TagList = new List<Tag>();
                 LastTimeOPCServerFoundAlive = DateTime.Now;
-
-                try
-                {
-                    InitializeOPCUAClient();
-                }
-                catch (Exception ex)
-                {
-                    throw new OPCUAException($"OPC UA client initialization failed: {ex.Message}", "Constructor->InitializeOPCUAClient", ex);
-                }
             }
             catch (ArgumentNullException ex)
             {
