@@ -1,10 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Opc.Ua;
 using Opc.Ua.Client;
 using Opc.Ua.Configuration;
@@ -13,8 +8,77 @@ using OpcUAClient;
 namespace OpcUaClient
 {
     /// <summary>
-    /// Represents an OPC UA session with functionality for session renewal, monitoring data changes, and server communication.
+    /// OPCSession provides a high-level abstraction for managing OPC UA client sessions in .NET applications,
+    /// including secure session creation, connection management, automatic session renewal, tag monitoring
+    /// (subscriptions), reading and writing tag values, and fine-grained event-driven data change handling.
+    ///
+    /// <para><b>Key Features:</b></para>
+    /// <list type="bullet">
+    ///   <item>OPC UA session management (connect/disconnect/renew/dispose)</item>
+    ///   <item>Certificate and security configuration, with optional anonymous or credential authentication</item>
+    ///   <item>Efficient subscription handling: monitors multiple tags in a single subscription</item>
+    ///   <item>Per-tag event notifications via <see cref="Tag.ValueChanged"/></item>
+    ///   <item>Global tag change notifications via <see cref="TagChanged"/> event</item>
+    ///   <item>Robust error and connection loss handling</item>
+    ///   <item>Automatic resource cleanup and metrics (uptime, error counts, etc.)</item>
+    /// </list>
+    ///
+    /// <para><b>Basic Usage Example:</b></para>
+    /// <code>
+    /// // 1. Create OPC UA connection settings (adjust to match your server)
+    /// var settings = new Settings
+    /// {
+    ///     ServerAddress = "broomcoKWDEV01.hdna.hd.lan",
+    ///     ServerPort = "49320",
+    ///     ServerPath = "broomcoKWDEV01",
+    ///     MyApplicationName = "MyOpcUaClient",
+    ///     SecurityEnabled = false,
+    ///     SessionRenewalRequired = true
+    /// };
+    ///
+    /// // 2. Create OPCSession
+    /// var opcSession = new OPCSession(settings);
+    ///
+    /// // 3. Add your tags (example: all from CEL_FBC_COUNTER_01.Controller)
+    /// opcSession.TagList.Add(new Tag("FabricColor", "ns=2;s=CEL_FBC_COUNTER_01.Controller.FabricColor"));
+    /// opcSession.TagList.Add(new Tag("Message", "ns=2;s=CEL_FBC_COUNTER_01.Controller.Message"));
+    /// opcSession.TagList.Add(new Tag("RemainingCellCount", "ns=2;s=CEL_FBC_COUNTER_01.Controller.RemainingCellCount"));
+    /// opcSession.TagList.Add(new Tag("RequestType", "ns=2;s=CEL_FBC_COUNTER_01.Controller.RequestType"));
+    /// opcSession.TagList.Add(new Tag("Status", "ns=2;s=CEL_FBC_COUNTER_01.Controller.Status"));
+    /// opcSession.TagList.Add(new Tag("TotalCellCount", "ns=2;s=CEL_FBC_COUNTER_01.Controller.TotalCellCount"));
+    /// opcSession.TagList.Add(new Tag("UnitCellCount", "ns=2;s=CEL_FBC_COUNTER_01.Controller.UnitCellCount"));
+    ///
+    /// // 4. Register tag-specific logic using ValueChanged events (per tag)
+    /// var statusTag = opcSession.TagList.First(t => t.DisplayName == "Status");
+    /// statusTag.ValueChanged += tag =>
+    /// {
+    ///     if (tag.CurrentValue == null)
+    ///         Console.WriteLine("Status tag is null.");
+    ///     else
+    ///         Console.WriteLine($"Status changed: {tag.CurrentValue}");
+    /// };
+    ///
+    /// // 5. (Optional) Register global handler for all tag changes
+    /// opcSession.TagChanged += (sender, e) =>
+    ///     Console.WriteLine($"Tag [{e.DisplayName}] value changed: {e.NewValue}");
+    ///
+    /// // 6. Connect and subscribe to data changes
+    /// opcSession.InitializeOPCUAClient();
+    /// opcSession.SubscribeToDataChanges();
+    ///
+    /// // 7. Read and write tag values as needed
+    /// string msg = opcSession.ReadNodeValue<string>(statusTag);
+    /// opcSession.WriteNodeValue(statusTag, "NewStatusValue");
+    /// </code>
+    ///
+    /// <para><b>Handling Nulls and Errors:</b></para>
+    /// <para>Tag values may be <c>null</c> if the server provides no value or the node is empty. This is handled gracefully; always check for <c>null</c> before using tag values. All public methods throw <see cref="OPCUAException"/> with rich context on error.</para>
+    ///
+    /// <para><b>Thread Safety:</b> This class is not thread-safe for writes; synchronize external calls as needed.</para>
+    ///
+    /// <para><b>See Also:</b> <see cref="Tag"/>, <see cref="Settings"/>, <see cref="TagValueChangedEventArgs"/></para>
     /// </summary>
+
     public partial class OPCSession : INotifyPropertyChanged, IDisposable
     {
         #region Properties
@@ -170,206 +234,6 @@ namespace OpcUaClient
                 throw new OPCUAException($"Unexpected error during OPCSession construction: {ex.Message}", "Constructor", ex);
             }
         }
-
-        #region Metrics
-
-        public TimeSpan SessionUptime => DateTime.Now - LastTimeSessionRenewed;
-
-        /// <summary>
-        /// Executes an operation with automatic retries on transient errors.
-        /// </summary>
-        /// <param name="operation">The operation to execute.</param>
-        /// <param name="retryCount">The number of retries to attempt.</param>
-        /// <returns>True if the operation succeeds; otherwise, false.</returns>
-        public async Task<bool> ExecuteWithRetry(Func<Task> operation, int retryCount = 3)
-        {
-            for (int attempt = 1; attempt <= retryCount; attempt++)
-            {
-                try
-                {
-                    await operation();
-                    return true;
-                }
-                catch (Exception ex) when (IsTransientError(ex))
-                {
-                    throw new OPCUAException($"Attempt {attempt} failed: {ex.Message}");
-                    await Task.Delay(1000); // Backoff delay
-                }
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Determines whether an exception is a transient error.
-        /// </summary>
-        /// <param name="ex">The exception to check.</param>
-        /// <returns>True if the error is transient; otherwise, false.</returns>
-        private bool IsTransientError(Exception ex)
-        {
-            return ex is ServiceResultException sre && sre.StatusCode == StatusCodes.BadTimeout;
-        }
-
-        public event EventHandler SessionConnected;
-        public event EventHandler SessionDisconnected;
-
-        /// <summary>
-        /// Raise session connected event.
-        /// </summary>
-        private void OnSessionConnected()
-        {
-            SessionConnected?.Invoke(this, EventArgs.Empty);
-        }
-
-        /// <summary>
-        /// Raise session disconnected event.
-        /// </summary>
-        private void OnSessionDisconnected()
-        {
-            SessionDisconnected?.Invoke(this, EventArgs.Empty);
-        }
-
-        /// <summary>
-        /// Gets the total uptime of the OPC session.
-        /// </summary>
-        public TimeSpan TotalUptime => OPCConnection != null ? DateTime.Now - LastTimeSessionRenewed : TimeSpan.Zero;
-
-        private int _totalRequestsSent;
-        private int _totalResponsesReceived;
-
-        /// <summary>
-        /// Gets the total number of requests sent to the OPC server.
-        /// </summary>
-        public int TotalRequestsSent => _totalRequestsSent;
-
-        /// <summary>
-        /// Gets the total number of responses received from the OPC server.
-        /// </summary>
-        public int TotalResponsesReceived => _totalResponsesReceived;
-
-        /// <summary>
-        /// Increments the request counter.
-        /// </summary>
-        private void IncrementRequestCount()
-        {
-            _totalRequestsSent++;
-        }
-
-        /// <summary>
-        /// Increments the response counter.
-        /// </summary>
-        private void IncrementResponseCount()
-        {
-            _totalResponsesReceived++;
-        }
-
-        private TimeSpan _totalResponseTime = TimeSpan.Zero;
-        private int _responseCount = 0;
-
-        /// <summary>
-        /// Gets the average response time for OPC requests.
-        /// </summary>
-        public TimeSpan AverageResponseTime => _responseCount > 0
-            ? TimeSpan.FromMilliseconds(_totalResponseTime.TotalMilliseconds / _responseCount)
-            : TimeSpan.Zero;
-
-        /// <summary>
-        /// Records the time taken for a response.
-        /// </summary>
-        /// <param name="responseTime">The time taken for the response.</param>
-        private void RecordResponseTime(TimeSpan responseTime)
-        {
-            _totalResponseTime += responseTime;
-            _responseCount++;
-        }
-
-        private int _errorCount;
-
-        /// <summary>
-        /// Gets the total number of errors encountered during the session.
-        /// </summary>
-        public int TotalErrors => _errorCount;
-
-        /// <summary>
-        /// Records an error in the session.
-        /// </summary>
-        private void RecordError()
-        {
-            _errorCount++;
-        }
-
-        private DateTime _lastSuccessfulOperation;
-
-        /// <summary>
-        /// Gets the timestamp of the last successful operation.
-        /// </summary>
-        public DateTime LastSuccessfulOperation => _lastSuccessfulOperation;
-
-        /// <summary>
-        /// Updates the timestamp for the last successful operation.
-        /// </summary>
-        private void UpdateLastSuccessfulOperation()
-        {
-            _lastSuccessfulOperation = DateTime.Now;
-        }
-
-        /// <summary>
-        /// Gets the detailed status of the OPC connection.
-        /// </summary>
-        public string ConnectionStatus
-        {
-            get
-            {
-                if (OPCConnection == null)
-                    return "Not connected";
-
-                if (!OPCConnection.Connected)
-                    return "Disconnected";
-
-                return $"Connected since {LastTimeSessionRenewed}, uptime: {TotalUptime}";
-            }
-        }
-
-        private Dictionary<string, DateTime> _tagUpdateTimes = new();
-
-        /// <summary>
-        /// Records the update time for a specific tag.
-        /// </summary>
-        /// <param name="tag">The tag being updated.</param>
-        private void RecordTagUpdate(Tag tag)
-        {
-            _tagUpdateTimes[tag.DisplayName] = DateTime.Now;
-        }
-
-        /// <summary>
-        /// Gets the update rate (in seconds) for a specific tag.
-        /// </summary>
-        /// <param name="tag">The tag to check.</param>
-        /// <returns>The update rate in seconds, or -1 if no updates have occurred.</returns>
-        public double GetTagUpdateRate(Tag tag)
-        {
-            if (_tagUpdateTimes.TryGetValue(tag.DisplayName, out DateTime lastUpdate))
-            {
-                return (DateTime.Now - lastUpdate).TotalSeconds;
-            }
-            return -1; // Tag has not been updated yet
-        }
-
-        private int _reconnectionAttempts;
-
-        /// <summary>
-        /// Gets the total number of reconnection attempts made during the session.
-        /// </summary>
-        public int TotalReconnectionAttempts => _reconnectionAttempts;
-
-        /// <summary>
-        /// Increments the reconnection attempt counter.
-        /// </summary>
-        private void IncrementReconnectionAttempts()
-        {
-            _reconnectionAttempts++;
-        }
-
-        #endregion
 
         #region Connect / Disconenct / Renew
 
