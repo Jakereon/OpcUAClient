@@ -21,38 +21,55 @@ namespace TestOPCUA
         //public static Tag RequestType => new Tag("RequestType", "ns=2;s=RequestType");
         public static Tag RequestType => new Tag("CEL_FBC_COUNTER_01.RequestType", "ns=2;s=CEL_FBC_COUNTER_01.Controller.RequestType");
 
-
         private void Button_Click(object sender, RoutedEventArgs e)
         {
             Debug.WriteLine("Connect button clicked.");
 
-            //Create settings
+            // Create settings for OPC UA connection
+            //var settings = new Settings
+            //{
+            //    MyApplicationName = "MyOPCClient",
+            //    ServerAddress = "broomco-90yvst3",
+            //    ServerPort = "62640",
+            //    SecurityEnabled = false,
+            //    SessionRenewalRequired = true
+            //};
             var settings = new Settings
             {
-                MyApplicationName = "MyOPCClient",
-                ServerAddress = "broomco-90yvst3",
-                ServerPort = "62640",
+                ServerAddress = "broomcoKWDEV01.hdna.hd.lan",
+                ServerPort = "49320",
+                ServerPath = "broomcoKWDEV01",
+                MyApplicationName = "MyOpcUaClient",
                 SecurityEnabled = false,
                 SessionRenewalRequired = true
             };
 
-
-            //var settings = new Settings
-            //{
-            //    ServerAddress = "broomcoKWDEV01.hdna.hd.lan",
-            //    ServerPort = "49320",
-            //    ServerPath = "broomcoKWDEV01",
-            //    MyApplicationName = "MyOpcUaClient",
-            //    SecurityEnabled = false 
-            //};
-
             Debug.WriteLine("Creating new OPCSession instance.");
             opcSession = new OPCSession(settings);
-            opcSession.TagList.Add(RequestType);
-            Debug.WriteLine("TestTag added to TagList.");
+
+            // --- 1. Add tags to TagList ---
+            // Example: create and add a few tags
+            var fabricColorTag = new Tag("FabricColor", "ns=2;s=CEL_FBC_COUNTER_01.Controller.FabricColor");
+            var messageTag = new Tag("Message", "ns=2;s=CEL_FBC_COUNTER_01.Controller.Message");
+            var remainingCellCountTag = new Tag("RemainingCellCount", "ns=2;s=CEL_FBC_COUNTER_01.Controller.RemainingCellCount");
+            var requestTypeTag = new Tag("RequestType", "ns=2;s=CEL_FBC_COUNTER_01.Controller.RequestType");
+            var statusTag = new Tag("Status", "ns=2;s=CEL_FBC_COUNTER_01.Controller.Status");
+            var totalCellCountTag = new Tag("TotalCellCount", "ns=2;s=CEL_FBC_COUNTER_01.Controller.TotalCellCount");
+            var unitCellCountTag = new Tag("UnitCellCount", "ns=2;s=CEL_FBC_COUNTER_01.Controller.UnitCellCount");
+
+            // Add them all to your session's tag list
+            opcSession.TagList.Add(fabricColorTag);
+            opcSession.TagList.Add(messageTag);
+            opcSession.TagList.Add(remainingCellCountTag);
+            opcSession.TagList.Add(requestTypeTag);
+            opcSession.TagList.Add(statusTag);
+            opcSession.TagList.Add(totalCellCountTag);
+            opcSession.TagList.Add(unitCellCountTag);
+
+            Debug.WriteLine("Tags added to TagList.");
 
             Debug.WriteLine("Calling InitializeOPCUAClient...");
-            opcSession.InitializeOPCUAClient();
+            //opcSession.InitializeOPCUAClient();
 
             if (!opcSession.Connected)
             {
@@ -64,10 +81,29 @@ namespace TestOPCUA
             Debug.WriteLine("Connected successfully to OPC UA server.");
             Console.WriteLine("Connected successfully!");
 
+            // --- 2. Subscribe to data changes for all tags ---
+            opcSession.SubscribeToDataChanges();
+
+            // --- 3. Attach event handler to the "status" tag ---
+            statusTag.ValueChanged += tag =>
+            {
+                // Show a message box popup when the status tag changes
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    MessageBox.Show($"Status tag changed! New value: {tag.CurrentValue}", "Status Changed", MessageBoxButton.OK, MessageBoxImage.Information);
+                });
+            };
+
+            // (Optional) You can add per-tag logic for other tags as well
+            statusTag.ValueChanged += tag =>
+            {
+                Debug.WriteLine($"Temperature tag changed: {tag.CurrentValue}");
+                // Additional logic for temperature changes...
+            };
         }
 
 
-        private void Button_Click_1(object sender, RoutedEventArgs e)
+       private void Button_Click_1(object sender, RoutedEventArgs e)
         {
             Debug.WriteLine("Read button clicked.");
 

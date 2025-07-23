@@ -985,10 +985,10 @@ namespace OpcUaClient
                 var dataValue = OPCConnection.ReadValue(nodeId);
 
                 if (dataValue == null)
-                    throw new OPCUAException("Read returned null DataValue.", "ReadNodeValue", tag.NodeID);
+                    return default; // Instead of throwing
 
                 if (dataValue.Value == null)
-                    throw new OPCUAException($"Node '{tag.DisplayName}' returned a null value.", "ReadNodeValue", tag.NodeID);
+                    return default; // Allow null
 
                 return (T)Convert.ChangeType(dataValue.Value, typeof(T));
             }
@@ -1114,17 +1114,10 @@ namespace OpcUaClient
 
                 try
                 {
-                    subscription.ApplyChanges();
-                }
-                catch (Exception ex)
-                {
-                    throw new OPCUAException("Failed to apply subscription changes.", "SubscribeToDataChanges", ex);
-                }
-
-                try
-                {
+                    // The correct order: Add, Create, THEN ApplyChanges!
                     OPCConnection.AddSubscription(subscription);
                     subscription.Create();
+                    subscription.ApplyChanges();
                 }
                 catch (Exception ex)
                 {
@@ -1145,71 +1138,57 @@ namespace OpcUaClient
         }
 
         /// <summary>
-        /// Subscribes to OPC UA data changes for a single tag.
-        /// Creates a monitored item and registers it with the server.
-        /// </summary>
-        /// <param name="tag">The tag to subscribe to.</param>
+        /// Handles OPC UA data change notifications for all monitored items (tags).
+        /// 
+        /// This method is triggered by the OPC UA stack whenever a value change is reported for any monitored tag.
+        /// For each data change notification:
+        ///   - Locates the corresponding <see cref="Tag"/> object in <see cref="TagList"/> by matching <see cref="DisplayName"/>.
+        ///   - Updates the <see cref="Tag"/>'s value, timestamp, source timestamp, and status code.
+        ///   - Invokes the per-tag <see cref="Tag.ValueChanged"/> event, allowing consumers to handle tag-specific logic directly.
+        ///   - Optionally, also raises a session-level <see cref="TagChanged"/> event for general listeners.
+        /// 
+        /// <para><b>Per-tag event usage:</b> By subscribing to the <see cref="Tag.ValueChanged"/> event on individual tags,
+        /// consumers can register separate callback functions for each tag, enabling tag-specific processing or UI updates.
+        /// </para>
+        /// 
+        /// <para><b>Example usage:</b><code>
+        /// // 1. Create Tag objects and subscribe to ValueChanged event
+        /// var temperatureTag = new Tag { DisplayName = "Temperature", NodeID = "ns=2;s=Temperature" };
+        /// temperatureTag.ValueChanged += tag =>
+        /// {
+        ///     Console.WriteLine($@"Temperature changed! New value: {tag.CurrentValue}, at {tag.LastUpdatedTime}");
+        ///     // Custom logic here, e.g., alert if too high.
+        /// };
+        /// 
+        /// var pressureTag = new Tag { DisplayName = "Pressure", NodeID = "ns=2;s=Pressure" };
+        /// pressureTag.ValueChanged += tag =>
+        /// {
+        ///     Console.WriteLine($@"Pressure update: {tag.CurrentValue}");
+        ///     // More custom logic...
+        /// };
+        /// 
+        /// // 2. Add tags to your OPCSession.TagList (before subscribing)
+        /// mySession.TagList.Add(temperatureTag);
+        /// mySession.TagList.Add(pressureTag);
+        /// 
+        /// // 3. Subscribe to data changes for all tags (this sets up monitoring)
+        /// mySession.SubscribeToDataChanges();
+        /// 
+        /// // 4. (Optionally) Listen for the session-wide event if you want to handle all tags together
+        /// mySession.TagChanged += (sender, e) =>
+        /// {
+        ///     Console.WriteLine($@"Tag [{e.DisplayName}] changed to {e.NewValue}");
+        /// };
+        /// </code></para>
+        /// 
+        /// <para><b>Notes:</b>
+        /// - Make sure to add tags to <see cref="TagList"/> and subscribe to their <see cref="ValueChanged"/> event <b>before</b> calling <see cref="SubscribeToDataChanges"/>.
+        /// - If no handler is registered for a tag, value changes will not trigger tag-specific logic but will still update the tag object and trigger the global event if used.
+        /// </para>
+        /// 
         /// <exception cref="OPCUAException">
-        /// Thrown if the session is not connected, the tag is invalid, or the subscription fails.
+        /// Thrown if monitored item or event args are null, or if the tag cannot be found in <see cref="TagList"/>.
         /// </exception>
-        public void SubscribeToTag(Tag tag)
-        {
-            try
-            {
-                if (OPCConnection == null || !OPCConnection.Connected)
-                    throw new OPCUAException("OPC UA session is not connected.", "SubscribeToTag");
-
-                if (tag == null)
-                    throw new OPCUAException("Tag is null.", "SubscribeToTag");
-
-                if (string.IsNullOrWhiteSpace(tag.NodeID))
-                    throw new OPCUAException("Tag.NodeID is null or empty.", "SubscribeToTag", tag.DisplayName);
-
-                Debug.WriteLine($"[Subscribe] Creating subscription for: {tag.DisplayName} ({tag.NodeID})");
-
-                var subscription = new Subscription(OPCConnection.DefaultSubscription)
-                {
-                    DisplayName = $"Sub_{tag.DisplayName}_{DateTime.Now:HHmmss}",
-                    PublishingEnabled = true,
-                    PublishingInterval = 1000
-                };
-
-                var monitoredItem = new MonitoredItem(subscription.DefaultItem)
-                {
-                    StartNodeId = tag.NodeID,
-                    AttributeId = Attributes.Value,
-                    DisplayName = tag.DisplayName,
-                    SamplingInterval = 1000
-                };
-
-                monitoredItem.Notification += OnTagValueChange;
-                subscription.AddItem(monitoredItem);
-
-                subscription.ApplyChanges();
-
-                OPCConnection.AddSubscription(subscription);
-                subscription.Create();
-
-                _subscriptions.Add(subscription);
-                Debug.WriteLine($"[Subscribe] Subscription created for tag: {tag.DisplayName}");
-            }
-            catch (OPCUAException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                throw new OPCUAException($"Unexpected error during subscription setup for tag '{tag?.DisplayName}': {ex.Message}", "SubscribeToTag", ex);
-            }
-        }
-
-
-        /// <summary>
-        /// Handles data change notifications for monitored items.
-        /// Updates internal tag state and triggers <see cref="TagChanged"/> events.
-        /// </summary>
-        /// <param name="item">The monitored item that triggered the event.</param>
-        /// <param name="e">The event args containing updated values.</param>
         private void OnTagValueChange(MonitoredItem item, MonitoredItemNotificationEventArgs e)
         {
             try
@@ -1225,11 +1204,15 @@ namespace OpcUaClient
                         if (tag == null)
                             throw new OPCUAException($"No matching tag found for monitored item: {item.DisplayName}", "OnTagValueChange");
 
-                        tag.CurrentValue = value.Value?.ToString();
+                        tag.CurrentValue = value.Value != null ? value.Value.ToString() : null;
                         tag.LastUpdatedTime = DateTime.Now;
                         tag.LastSourceTimeStamp = value.SourceTimestamp.ToLocalTime();
                         tag.StatusCode = value.StatusCode.ToString();
 
+                        // Raise the per-tag event
+                        tag.RaiseValueChanged();
+
+                        // Optionally, still fire the overall TagChanged event if you want to support both
                         TagChanged?.Invoke(this, new TagValueChangedEventArgs(tag.DisplayName, tag.CurrentValue, tag.LastUpdatedTime));
                     }
                     catch (Exception ex)
