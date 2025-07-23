@@ -1,15 +1,5 @@
 ﻿using System.Diagnostics;
-using System.Text;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
-using Opc.Ua;
 using OpcUaClient;
 using OpcUAClient;
 
@@ -36,25 +26,25 @@ namespace TestOPCUA
         {
             Debug.WriteLine("Connect button clicked.");
 
-            // Create settings
-            //var settings = new Settings
-            //{
-            //    MyApplicationName = "MyOPCClient",
-            //    ServerAddress = "broomco-90yvst3",
-            //    ServerPort = "62640",
-            //    SecurityEnabled = false,
-            //    SessionRenewalRequired = true
-            //};
-
-
+            //Create settings
             var settings = new Settings
             {
-                ServerAddress = "broomcoKWDEV01.hdna.hd.lan",
-                ServerPort = "49320",
-                ServerPath = "broomcoKWDEV01",
-                MyApplicationName = "MyOpcUaClient",
-                SecurityEnabled = false 
+                MyApplicationName = "MyOPCClient",
+                ServerAddress = "broomco-90yvst3",
+                ServerPort = "62640",
+                SecurityEnabled = false,
+                SessionRenewalRequired = true
             };
+
+
+            //var settings = new Settings
+            //{
+            //    ServerAddress = "broomcoKWDEV01.hdna.hd.lan",
+            //    ServerPort = "49320",
+            //    ServerPath = "broomcoKWDEV01",
+            //    MyApplicationName = "MyOpcUaClient",
+            //    SecurityEnabled = false 
+            //};
 
             Debug.WriteLine("Creating new OPCSession instance.");
             opcSession = new OPCSession(settings);
@@ -127,7 +117,7 @@ namespace TestOPCUA
 
 
             var before = opcSession.ReadNodeValue<string>(RequestType);
-            opcSession.WriteNodeValue(RequestType, "TEST_ABC");
+            opcSession.WriteNodeValue(RequestType, "fhsdajkfhlasdk");
             var after = opcSession.ReadNodeValue<string>(RequestType);
             Debug.WriteLine($"Before: {before}, After: {after}");
         }

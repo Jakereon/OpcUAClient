@@ -1,14 +1,37 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Build for old Framework apps (via netstandard) AND modern .NET -->
+    <TargetFrameworks>netstandard2.0;net8.0-windows</TargetFrameworks>
     <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!-- Implicit usings only make sense on the modern target -->
+  <PropertyGroup Condition="'$(TargetFramework)'=='net8.0-windows'">
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)'=='netstandard2.0'">
+    <ImplicitUsings>disable</ImplicitUsings>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Client" Version="1.5.374.158" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0-windows</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- <== put this here -->
+  </PropertyGroup>
+
+  <!-- Only if the netstandard build complains about missing Span/Memory APIs -->
+  <!--
+  <ItemGroup Condition="'$(TargetFramework)'=='netstandard2.0'">
+    <PackageReference Include="System.Memory" Version="4.6.0" />
+  </ItemGroup>
+  -->
 
 </Project>

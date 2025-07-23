@@ -1,6 +1,10 @@
-﻿using System.Diagnostics;
-using System.Security.Cryptography.X509Certificates;
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Opc.Ua;
 using Opc.Ua.Client;
 using Opc.Ua.Configuration;
@@ -11,13 +15,24 @@ namespace OpcUaClient
     /// <summary>
     /// Represents an OPC UA session with functionality for session renewal, monitoring data changes, and server communication.
     /// </summary>
-    public partial class OPCSession : ObservableObject, IDisposable
+    public partial class OPCSession : INotifyPropertyChanged, IDisposable
     {
-        #region Properities
+        #region Properties
 
-        // Private Properties
-        [ObservableProperty]
+        // Implement INotifyPropertyChanged for Settings if needed for binding
         private Settings _settings;
+        public Settings Settings
+        {
+            get { return _settings; }
+            set
+            {
+                if (_settings != value)
+                {
+                    _settings = value;
+                    OnPropertyChanged(nameof(Settings));
+                }
+            }
+        }
 
         private Session OPCConnection { get; set; }
         private DateTime LastTimeSessionRenewed { get; set; }
@@ -25,7 +40,7 @@ namespace OpcUaClient
         private CancellationTokenSource _cancellationTokenSource;
         private Task _renewalTask;
         private bool _disposed;
-        private readonly List<Subscription> _subscriptions = new();
+        private readonly List<Subscription> _subscriptions = new List<Subscription>();
 
         // User Access Properties
         public bool InitialisationCompleted;
@@ -34,20 +49,83 @@ namespace OpcUaClient
         {
             get
             {
-                return OPCConnection.Connected;
+                return OPCConnection != null && OPCConnection.Connected;
             }
         }
 
         // Events
         public event EventHandler<string> ConnectionLost;
         public event EventHandler<TagValueChangedEventArgs> TagChanged;
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        protected void OnPropertyChanged(string propertyName)
+        {
+            var handler = PropertyChanged;
+            if (handler != null)
+                handler(this, new PropertyChangedEventArgs(propertyName));
+        }
 
         #endregion
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="OPCSession"/> class with the given settings,
-        /// validates all configuration, and attempts to initialize the OPC UA session.
+        /// Initializes a new instance of the <see cref="OPCSession"/> class using the provided <paramref name="settings"/>.
+        /// 
+        /// This constructor performs the following steps:
+        /// 1. Validates that all critical configuration fields are present and non-empty.
+        /// 2. Stores the settings and initializes internal structures (e.g., <see cref="TagList"/>).
+        /// 3. Calls <c>InitializeOPCUAClient()</c> to establish a connection with the OPC UA server.
+        ///
+        /// The <paramref name="settings"/> object must include the following properties:
+        ///
+        /// <list type="bullet">
+        ///   <item>
+        ///     <term><c>ServerAddress</c></term>
+        ///     <description>
+        ///     The hostname or IP address of the OPC UA server (e.g., <c>"broomco-90yvst3"</c>). 
+        ///     This is combined with the port and path to form the full endpoint URI.
+        ///     </description>
+        ///   </item>
+        ///   <item>
+        ///     <term><c>ServerPort</c></term>
+        ///     <description>
+        ///     The port number used to connect to the OPC UA server (e.g., <c>"62640"</c>).
+        ///     This must match the port the server is actively listening on.
+        ///     </description>
+        ///   </item>
+        ///   <item>
+        ///     <term><c>MyApplicationName</c></term>
+        ///     <description>
+        ///     A unique name for this client application. It is used when registering the client
+        ///     with the OPC UA server and appears in session logs and diagnostics.
+        ///     </description>
+        ///   </item>
+        ///   <item>
+        ///     <term><c>EndpointPath</c> (optional)</term>
+        ///     <description>
+        ///     The additional endpoint path (e.g., <c>"/IntegrationObjects/ServerSimulator"</c>) that completes the full URI. 
+        ///     This may vary depending on the server implementation. If not explicitly included in the settings,
+        ///     the default endpoint path will be used.
+        ///     </description>
+        ///   </item>
+        ///   <item>
+        ///     <term><c>UseAnonymousAuth</c></term>
+        ///     <description>
+        ///     Indicates whether the client should use anonymous authentication (true) or credentials (false).
+        ///     If false, ensure that username and password fields are populated in the settings.
+        ///     </description>
+        ///   </item>
+        /// </list>
+        ///
+        /// <para>
+        /// Example endpoint URI constructed from these settings:
+        /// <c>opc.tcp://{ServerAddress}:{ServerPort}{EndpointPath}</c>
+        /// </para>
+        ///
         /// </summary>
+        /// <param name="settings">The OPC UA connection settings used to establish and configure the client session.</param>
+        /// <exception cref="OPCUAException">
+        /// Thrown if required settings are missing, or if an error occurs during session initialization.
+        /// </exception>
         /// <param name="settings">The OPC UA connection settings.</param>
         /// <exception cref="OPCUAException">Thrown if settings are invalid or session initialization fails.</exception>
         public OPCSession(Settings settings)
