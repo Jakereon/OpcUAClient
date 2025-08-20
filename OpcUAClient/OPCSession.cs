@@ -129,6 +129,11 @@ namespace OpcUaClient
                 handler(this, new PropertyChangedEventArgs(propertyName));
         }
 
+
+
+
+
+
         #endregion
 
         /// <summary>
@@ -379,6 +384,16 @@ namespace OpcUaClient
                     throw new OPCUAException($"Failed to initialize KeepAlive monitoring: {ex.Message}", "KeepAliveInit", ex);
                 }
 
+                try
+                {
+                    StartConnectionMonitor();
+                }
+                catch (Exception)
+                {
+
+                    throw;
+                }
+
                 Debug.WriteLine("OPC UA client initialized successfully.");
             }
             catch (OPCUAException)
@@ -619,7 +634,7 @@ namespace OpcUaClient
             }
             catch (OPCUAException)
             {
-                throw; // Preserve rich context
+                throw;
             }
             catch (Exception ex)
             {
@@ -697,6 +712,13 @@ namespace OpcUaClient
             {
                 throw new OPCUAException($"Unhandled exception during connection loss handling: {ex.Message}", "HandleConnectionLoss", ex);
             }
+        }
+
+
+        /// <summary> raise an event when the connection is lost
+        private void StartConnectionMonitor()
+        {
+
         }
 
         /// <summary>
@@ -822,54 +844,364 @@ namespace OpcUaClient
         /// Thrown if the tag is null, the NodeID is invalid, the value is null, 
         /// or if reading fails due to session or conversion errors.
         /// </exception>
-        public T ReadNodeValue<T>(Tag tag)
+        //public T ReadNodeValue<T>(Tag tag)
+        //{
+        //    try
+        //    {
+        //        if (tag == null)
+        //            throw new OPCUAException("Tag object is null.", "ReadNodeValue");
+
+        //        if (string.IsNullOrWhiteSpace(tag.NodeID))
+        //            throw new OPCUAException("Tag.NodeID is null or empty.", "ReadNodeValue", tag?.DisplayName);
+
+        //        if (OPCConnection == null || !OPCConnection.Connected)
+        //            throw new OPCUAException("OPC UA session is not connected.", "ReadNodeValue", tag.NodeID);
+
+        //        Debug.WriteLine($"Reading Node: {tag.DisplayName} ({tag.NodeID})");
+        //        var nodeId = new NodeId(tag.NodeID);
+        //        var dataValue = OPCConnection.ReadValue(nodeId);
+
+        //        if (dataValue == null)
+        //            return default; // Instead of throwing
+
+        //        if (dataValue.Value == null)
+        //            return default; // Allow null
+
+        //        return (T)Convert.ChangeType(dataValue.Value, typeof(T));
+        //    }
+        //    catch (InvalidCastException ex)
+        //    {
+        //        throw new OPCUAException($"Failed to cast value from node '{tag?.DisplayName}' to type {typeof(T).Name}: {ex.Message}", "ReadNodeValue", tag?.NodeID);
+        //    }
+        //    catch (ServiceResultException ex)
+        //    {
+        //        throw new OPCUAException($"OPC UA service error while reading node '{tag?.DisplayName}': {ex.Message}", "ReadNodeValue", ex);
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        throw new OPCUAException($"Unexpected error while reading node '{tag?.DisplayName}': {ex.Message}", "ReadNodeValue", ex);
+        //    }
+        //}
+
+        ///// <summary>
+        ///// Writes a value to a specified OPC UA node.
+        ///// </summary>
+        ///// <param name="tag">The tag containing the NodeID to write to.</param>
+        ///// <param name="value">The value to write to the node.</param>
+        ///// <exception cref="OPCUAException">
+        ///// Thrown if the tag or connection is invalid, the NodeID is missing,
+        ///// or if the server fails to accept the written value.
+        ///// </exception>
+        //public void WriteNodeValue(Tag tag, object value)
+        //{
+        //    try
+        //    {
+        //        if (tag == null)
+        //            throw new OPCUAException("Tag object is null.", "WriteNodeValue");
+
+        //        if (string.IsNullOrWhiteSpace(tag.NodeID))
+        //            throw new OPCUAException("Tag.NodeID is null or empty.", "WriteNodeValue", tag?.DisplayName);
+
+        //        if (OPCConnection == null || !OPCConnection.Connected)
+        //            throw new OPCUAException("OPC UA session is not connected.", "WriteNodeValue", tag?.NodeID);
+
+        //        var nodeId = NodeId.Parse(tag.NodeID);
+
+        //        var writeValue = new WriteValue
+        //        {
+        //            NodeId = nodeId,
+        //            AttributeId = Attributes.Value,
+        //            Value = new DataValue(new Variant(value))
+        //        };
+
+        //        var writeCollection = new WriteValueCollection { writeValue };
+
+        //        OPCConnection.Write(
+        //            null,
+        //            writeCollection,
+        //            out StatusCodeCollection results,
+        //            out DiagnosticInfoCollection diagnosticInfos);
+
+        //        if (results == null || results.Count == 0)
+        //            throw new OPCUAException("Write operation returned no status results.", "WriteNodeValue", tag.NodeID);
+
+        //        if (StatusCode.IsBad(results[0]))
+        //            throw new OPCUAException($"Write failed: {results[0]}", "WriteNodeValue", tag.NodeID);
+
+        //        Debug.WriteLine($"Successfully wrote value '{value}' to node '{tag.DisplayName}'");
+        //    }
+        //    catch (ServiceResultException ex)
+        //    {
+        //        throw new OPCUAException($"OPC UA service error during write: {ex.Message}", "WriteNodeValue", ex);
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        throw new OPCUAException($"Unexpected error during write to node '{tag?.DisplayName}': {ex.Message}", "WriteNodeValue", ex);
+        //    }
+        //}
+
+        /// <summary>
+        /// Subscribes to OPC UA data changes for all tags in the <see cref="TagList"/>.
+        /// Creates monitored items for each tag and registers them with the server.
+        /// </summary>
+        /// <exception cref="OPCUAException">
+        /// Thrown if the session is not connected, or if any part of the subscription process fails.
+        /// </exception>
+        //public void SubscribeToDataChanges()
+        //{
+        //    try
+        //    {
+        //        if (OPCConnection == null || !OPCConnection.Connected)
+        //            throw new OPCUAException("OPC UA session is not connected.", "SubscribeToDataChanges");
+
+        //        Debug.WriteLine("[Subscribe] Creating subscription...");
+
+        //        var subscription = new Subscription(OPCConnection.DefaultSubscription)
+        //        {
+        //            DisplayName = $"Sub_{DateTime.Now:HHmmss}",
+        //            PublishingEnabled = true,
+        //            PublishingInterval = 1000
+        //        };
+
+        //        foreach (var tag in TagList)
+        //        {
+        //            try
+        //            {
+        //                if (string.IsNullOrWhiteSpace(tag.NodeID))
+        //                    throw new OPCUAException("Tag.NodeID is null or empty.", "SubscribeToDataChanges", tag?.DisplayName);
+
+        //                Debug.WriteLine($"[Subscribe] Adding monitored item: {tag.DisplayName} ({tag.NodeID})");
+
+        //                var monitoredItem = new MonitoredItem(subscription.DefaultItem)
+        //                {
+        //                    StartNodeId = tag.NodeID,
+        //                    AttributeId = Attributes.Value,
+        //                    DisplayName = tag.DisplayName,
+        //                    SamplingInterval = 1000
+        //                };
+
+        //                monitoredItem.Notification += OnTagValueChange;
+        //                subscription.AddItem(monitoredItem);
+        //            }
+        //            catch (Exception ex)
+        //            {
+        //                throw new OPCUAException($"Failed to create monitored item for tag '{tag?.DisplayName}': {ex.Message}", "SubscribeToDataChanges", tag?.NodeID);
+        //            }
+        //        }
+
+        //        try
+        //        {
+        //            // The correct order: Add, Create, THEN ApplyChanges!
+        //            OPCConnection.AddSubscription(subscription);
+        //            subscription.Create();
+        //            subscription.ApplyChanges();
+        //        }
+        //        catch (Exception ex)
+        //        {
+        //            throw new OPCUAException("Failed to create and register subscription with the OPC server.", "SubscribeToDataChanges", ex);
+        //        }
+
+        //        _subscriptions.Add(subscription);
+        //        Debug.WriteLine($"[Subscribe] Subscription created successfully with {subscription.MonitoredItemCount} items.");
+        //    }
+        //    catch (OPCUAException)
+        //    {
+        //        throw;
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        throw new OPCUAException($"Unexpected error during subscription setup: {ex.Message}", "SubscribeToDataChanges", ex);
+        //    }
+        //}
+
+        ///// <summary>
+        ///// Handles OPC UA data change notifications for all monitored items (tags).
+        ///// 
+        ///// This method is triggered by the OPC UA stack whenever a value change is reported for any monitored tag.
+        ///// For each data change notification:
+        /////   - Locates the corresponding <see cref="Tag"/> object in <see cref="TagList"/> by matching <see cref="DisplayName"/>.
+        /////   - Updates the <see cref="Tag"/>'s value, timestamp, source timestamp, and status code.
+        /////   - Invokes the per-tag <see cref="Tag.ValueChanged"/> event, allowing consumers to handle tag-specific logic directly.
+        /////   - Optionally, also raises a session-level <see cref="TagChanged"/> event for general listeners.
+        ///// 
+        ///// <para><b>Per-tag event usage:</b> By subscribing to the <see cref="Tag.ValueChanged"/> event on individual tags,
+        ///// consumers can register separate callback functions for each tag, enabling tag-specific processing or UI updates.
+        ///// </para>
+        ///// 
+        ///// <para><b>Example usage:</b><code>
+        ///// // 1. Create Tag objects and subscribe to ValueChanged event
+        ///// var temperatureTag = new Tag { DisplayName = "Temperature", NodeID = "ns=2;s=Temperature" };
+        ///// temperatureTag.ValueChanged += tag =>
+        ///// {
+        /////     Console.WriteLine($@"Temperature changed! New value: {tag.CurrentValue}, at {tag.LastUpdatedTime}");
+        /////     // Custom logic here, e.g., alert if too high.
+        ///// };
+        ///// 
+        ///// var pressureTag = new Tag { DisplayName = "Pressure", NodeID = "ns=2;s=Pressure" };
+        ///// pressureTag.ValueChanged += tag =>
+        ///// {
+        /////     Console.WriteLine($@"Pressure update: {tag.CurrentValue}");
+        /////     // More custom logic...
+        ///// };
+        ///// 
+        ///// // 2. Add tags to your OPCSession.TagList (before subscribing)
+        ///// mySession.TagList.Add(temperatureTag);
+        ///// mySession.TagList.Add(pressureTag);
+        ///// 
+        ///// // 3. Subscribe to data changes for all tags (this sets up monitoring)
+        ///// mySession.SubscribeToDataChanges();
+        ///// 
+        ///// // 4. (Optionally) Listen for the session-wide event if you want to handle all tags together
+        ///// mySession.TagChanged += (sender, e) =>
+        ///// {
+        /////     Console.WriteLine($@"Tag [{e.DisplayName}] changed to {e.NewValue}");
+        ///// };
+        ///// </code></para>
+        ///// 
+        ///// <para><b>Notes:</b>
+        ///// - Make sure to add tags to <see cref="TagList"/> and subscribe to their <see cref="ValueChanged"/> event <b>before</b> calling <see cref="SubscribeToDataChanges"/>.
+        ///// - If no handler is registered for a tag, value changes will not trigger tag-specific logic but will still update the tag object and trigger the global event if used.
+        ///// </para>
+        ///// 
+        ///// <exception cref="OPCUAException">
+        ///// Thrown if monitored item or event args are null, or if the tag cannot be found in <see cref="TagList"/>.
+        ///// </exception>
+        //private void OnTagValueChange(MonitoredItem item, MonitoredItemNotificationEventArgs e)
+        //{
+        //    try
+        //    {
+        //        if (item == null || e == null)
+        //            throw new OPCUAException("Invalid event arguments in OnTagValueChange.", "OnTagValueChange");
+
+        //        foreach (var value in item.DequeueValues())
+        //        {
+        //            try
+        //            {
+        //                var tag = TagList.FirstOrDefault(t => t.DisplayName == item.DisplayName);
+        //                if (tag == null)
+        //                    throw new OPCUAException($"No matching tag found for monitored item: {item.DisplayName}", "OnTagValueChange");
+
+        //                tag.CurrentValue = value.Value != null ? value.Value.ToString() : null;
+        //                tag.LastUpdatedTime = DateTime.Now;
+        //                tag.LastSourceTimeStamp = value.SourceTimestamp.ToLocalTime();
+        //                tag.StatusCode = value.StatusCode.ToString();
+
+        //                // Raise the per-tag event
+        //                tag.RaiseValueChanged();
+
+        //                // Optionally, still fire the overall TagChanged event if you want to support both
+        //                TagChanged?.Invoke(this, new TagValueChangedEventArgs(tag.DisplayName, tag.CurrentValue, tag.LastUpdatedTime));
+        //            }
+        //            catch (Exception ex)
+        //            {
+        //                throw new OPCUAException($"Error processing value for tag '{item.DisplayName}': {ex.Message}", "OnTagValueChange", ex);
+        //            }
+        //        }
+        //    }
+        //    catch (OPCUAException)
+        //    {
+        //        throw;
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        throw new OPCUAException($"Unhandled error in OnTagValueChange: {ex.Message}", "OnTagValueChange", ex);
+        //    }
+        //}
+
+        #endregion
+
+
+
+
+
+        private void EnsureTagMetadata(Tag tag)
         {
+            if (tag == null) throw new OPCUAException("Tag is null.", "EnsureTagMetadata");
+            if (string.IsNullOrWhiteSpace(tag.NodeID))
+                throw new OPCUAException("Tag.NodeID is null or empty.", "EnsureTagMetadata", tag?.DisplayName);
+
+            // Already loaded?
+            if (tag.ExpectedDataTypeId != null && tag.ExpectedValueRank != ValueRanks.Any) return;
+
+            var node = OPCConnection.ReadNode(NodeId.Parse(tag.NodeID)) as VariableNode;
+            if (node == null)
+                throw new OPCUAException($"Node '{tag.NodeID}' is not a VariableNode.", "EnsureTagMetadata", tag.NodeID);
+
+            tag.ExpectedDataTypeId = node.DataType;
+            tag.ExpectedValueRank = node.ValueRank;
+            if (tag.ExpectedValueRank == ValueRanks.Any) tag.ExpectedValueRank = ValueRanks.Scalar; // be strict by default
+        }
+
+        private object CoerceForWrite(object value, Tag tag)
+        {
+            if (value is null) return null;
+
+            EnsureTagMetadata(tag);
+
+            if (tag.ExpectedValueRank != ValueRanks.Scalar)
+                throw new OPCUAException(
+                    $"Array writes not implemented for tag '{tag.DisplayName}'.",
+                    "CoerceForWrite", tag.NodeID);
+
+            // UA metadata
+            var builtIn = TypeInfo.GetBuiltInType(tag.ExpectedDataTypeId, OPCConnection.TypeTree);
+
+            // ✅ Your SDK’s overload: (ExpandedNodeId, IEncodeableFactory)
+            var sysType = TypeInfo.GetSystemType(tag.ExpectedDataTypeId, OPCConnection.MessageContext.Factory);
+
+            // If caller already passed the right CLR type, pass through
+            if (sysType != null && sysType.IsInstanceOfType(value)) return value;
+
             try
             {
-                if (tag == null)
-                    throw new OPCUAException("Tag object is null.", "ReadNodeValue");
-
-                if (string.IsNullOrWhiteSpace(tag.NodeID))
-                    throw new OPCUAException("Tag.NodeID is null or empty.", "ReadNodeValue", tag?.DisplayName);
-
-                if (OPCConnection == null || !OPCConnection.Connected)
-                    throw new OPCUAException("OPC UA session is not connected.", "ReadNodeValue", tag.NodeID);
-
-                Debug.WriteLine($"Reading Node: {tag.DisplayName} ({tag.NodeID})");
-                var nodeId = new NodeId(tag.NodeID);
-                var dataValue = OPCConnection.ReadValue(nodeId);
-
-                if (dataValue == null)
-                    return default; // Instead of throwing
-
-                if (dataValue.Value == null)
-                    return default; // Allow null
-
-                return (T)Convert.ChangeType(dataValue.Value, typeof(T));
-            }
-            catch (InvalidCastException ex)
-            {
-                throw new OPCUAException($"Failed to cast value from node '{tag?.DisplayName}' to type {typeof(T).Name}: {ex.Message}", "ReadNodeValue", tag?.NodeID);
-            }
-            catch (ServiceResultException ex)
-            {
-                throw new OPCUAException($"OPC UA service error while reading node '{tag?.DisplayName}': {ex.Message}", "ReadNodeValue", ex);
+                // Strong, lossless coercions by BuiltInType (covers int→UInt32, etc.)
+                switch (builtIn)
+                {
+                    case BuiltInType.Boolean: return Convert.ToBoolean(value);
+                    case BuiltInType.SByte: return Convert.ToSByte(value);
+                    case BuiltInType.Byte: return Convert.ToByte(value);
+                    case BuiltInType.Int16: return Convert.ToInt16(value);
+                    case BuiltInType.UInt16: return Convert.ToUInt16(value);
+                    case BuiltInType.Int32: return Convert.ToInt32(value);
+                    case BuiltInType.UInt32: return Convert.ToUInt32(value);
+                    case BuiltInType.Int64: return Convert.ToInt64(value);
+                    case BuiltInType.UInt64: return Convert.ToUInt64(value);
+                    case BuiltInType.Float: return Convert.ToSingle(value);
+                    case BuiltInType.Double: return Convert.ToDouble(value);
+                    case BuiltInType.String: return Convert.ToString(value);
+                    case BuiltInType.DateTime: return value is DateTime dt ? dt : Convert.ToDateTime(value);
+                    case BuiltInType.ByteString:
+                        if (value is byte[] bytes) return bytes;
+                        if (value is string b64) return Convert.FromBase64String(b64);
+                        throw new InvalidCastException("Provide byte[] or Base64 string for ByteString.");
+                    case BuiltInType.Guid: return value is Guid g ? g : Guid.Parse(Convert.ToString(value));
+                    case BuiltInType.NodeId: return value is NodeId nid ? nid : NodeId.Parse(Convert.ToString(value));
+                    case BuiltInType.ExpandedNodeId:
+                        return value is ExpandedNodeId enid ? enid : ExpandedNodeId.Parse(Convert.ToString(value));
+                    case BuiltInType.LocalizedText:
+                        return value is LocalizedText lt ? lt : new LocalizedText(Convert.ToString(value));
+                    case BuiltInType.QualifiedName:
+                        return value is QualifiedName qn ? qn : QualifiedName.Parse(Convert.ToString(value));
+                    case BuiltInType.ExtensionObject:
+                        if (value is ExtensionObject eo) return eo;
+                        throw new InvalidCastException("Provide an ExtensionObject for this tag.");
+                    default:
+                        // Fallback: try converting to the CLR system type, if known
+                        if (sysType != null) return Convert.ChangeType(value, sysType);
+                        throw new InvalidCastException($"Unhandled BuiltInType '{builtIn}'.");
+                }
             }
             catch (Exception ex)
             {
-                throw new OPCUAException($"Unexpected error while reading node '{tag?.DisplayName}': {ex.Message}", "ReadNodeValue", ex);
+                throw new OPCUAException(
+                    $"Failed to coerce '{value}' ({value?.GetType().Name}) to {builtIn} for tag '{tag.DisplayName}'. {ex.Message}",
+                    "CoerceForWrite", tag.NodeID, ex);
             }
         }
 
-        /// <summary>
-        /// Writes a value to a specified OPC UA node.
-        /// </summary>
-        /// <param name="tag">The tag containing the NodeID to write to.</param>
-        /// <param name="value">The value to write to the node.</param>
-        /// <exception cref="OPCUAException">
-        /// Thrown if the tag or connection is invalid, the NodeID is missing,
-        /// or if the server fails to accept the written value.
-        /// </exception>
+
+
+
         public void WriteNodeValue(Tag tag, object value)
         {
             try
@@ -883,13 +1215,14 @@ namespace OpcUaClient
                 if (OPCConnection == null || !OPCConnection.Connected)
                     throw new OPCUAException("OPC UA session is not connected.", "WriteNodeValue", tag?.NodeID);
 
-                var nodeId = NodeId.Parse(tag.NodeID);
+                // Coerce to server-declared type
+                var coerced = CoerceForWrite(value, tag);
 
                 var writeValue = new WriteValue
                 {
-                    NodeId = nodeId,
+                    NodeId = NodeId.Parse(tag.NodeID),
                     AttributeId = Attributes.Value,
-                    Value = new DataValue(new Variant(value))
+                    Value = new DataValue(new Variant(coerced))
                 };
 
                 var writeCollection = new WriteValueCollection { writeValue };
@@ -906,8 +1239,9 @@ namespace OpcUaClient
                 if (StatusCode.IsBad(results[0]))
                     throw new OPCUAException($"Write failed: {results[0]}", "WriteNodeValue", tag.NodeID);
 
-                Debug.WriteLine($"Successfully wrote value '{value}' to node '{tag.DisplayName}'");
+                Debug.WriteLine($"[Write] {tag.DisplayName} ({tag.NodeID}) = {coerced} ({coerced?.GetType().Name})");
             }
+            catch (OPCUAException) { throw; }
             catch (ServiceResultException ex)
             {
                 throw new OPCUAException($"OPC UA service error during write: {ex.Message}", "WriteNodeValue", ex);
@@ -918,13 +1252,99 @@ namespace OpcUaClient
             }
         }
 
-        /// <summary>
-        /// Subscribes to OPC UA data changes for all tags in the <see cref="TagList"/>.
-        /// Creates monitored items for each tag and registers them with the server.
-        /// </summary>
-        /// <exception cref="OPCUAException">
-        /// Thrown if the session is not connected, or if any part of the subscription process fails.
-        /// </exception>
+
+
+        public T ReadNodeValue<T>(Tag tag)
+        {
+            try
+            {
+                if (tag == null)
+                    throw new OPCUAException("Tag object is null.", "ReadNodeValue");
+                if (string.IsNullOrWhiteSpace(tag.NodeID))
+                    throw new OPCUAException("Tag.NodeID is null or empty.", "ReadNodeValue", tag?.DisplayName);
+                if (OPCConnection == null || !OPCConnection.Connected)
+                    throw new OPCUAException("OPC UA session is not connected.", "ReadNodeValue", tag.NodeID);
+
+                EnsureTagMetadata(tag);
+
+                var dataValue = OPCConnection.ReadValue(NodeId.Parse(tag.NodeID));
+                if (dataValue?.Value == null) return default;
+
+                var raw = dataValue.Value;
+
+                // If it already matches, return directly
+                if (raw is T t) return t;
+
+                var builtIn = TypeInfo.GetBuiltInType(tag.ExpectedDataTypeId, OPCConnection.TypeTree);
+                var sysType = TypeInfo.GetSystemType(tag.ExpectedDataTypeId, OPCConnection.MessageContext.Factory);
+
+                // Enums: map underlying integral value to enum
+                if (typeof(T).IsEnum)
+                {
+                    var underlying = Enum.GetUnderlyingType(typeof(T));
+                    var integral = Convert.ChangeType(raw, underlying);
+                    return (T)Enum.ToObject(typeof(T), integral);
+                }
+
+                // Coerce to system type first (if different), then to T
+                if (sysType != null && !sysType.IsInstanceOfType(raw))
+                    raw = Convert.ChangeType(raw, sysType);
+
+                return (T)Convert.ChangeType(raw, typeof(T));
+            }
+            catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException)
+            {
+                throw new OPCUAException(
+                    $"Failed to cast value of '{tag?.DisplayName}' to {typeof(T).Name}: {ex.Message}",
+                    "ReadNodeValue", tag?.NodeID, ex);
+            }
+        }
+
+
+        private void OnTagValueChange(MonitoredItem item, MonitoredItemNotificationEventArgs e)
+        {
+            try
+            {
+                if (item == null || e == null)
+                    throw new OPCUAException("Invalid event arguments in OnTagValueChange.", "OnTagValueChange");
+
+                foreach (var value in item.DequeueValues())
+                {
+                    var tag = TagList.FirstOrDefault(t => t.DisplayName == item.DisplayName);
+                    if (tag == null)
+                        throw new OPCUAException($"No matching tag found for monitored item: {item.DisplayName}", "OnTagValueChange");
+
+                    // Preserve object + type info
+                    var variant = new Variant(value.Value);
+                    tag.CurrentValueObj = variant.Value;
+                    tag.CurrentTypeInfo = TypeInfo.Construct(variant.Value);
+                    tag.CurrentBuiltInType = tag.CurrentTypeInfo?.BuiltInType;
+
+                    // Keep string for UI/logging if you like
+                    tag.CurrentValue = variant.ToString();
+
+                    tag.LastUpdatedTime = DateTime.Now;
+                    tag.LastSourceTimeStamp = value.SourceTimestamp.ToLocalTime();
+                    tag.StatusCode = value.StatusCode.ToString();
+
+                    // Raise per-tag + global
+                    tag.RaiseValueChanged();
+                    TagChanged?.Invoke(this, new TagValueChangedEventArgs(tag.DisplayName, tag.CurrentValue, tag.LastUpdatedTime)
+                    {
+                        // If you extend your args, include object too
+                        // NewValueObject = tag.CurrentValueObj
+                    });
+                }
+            }
+            catch (OPCUAException) { throw; }
+            catch (Exception ex)
+            {
+                throw new OPCUAException($"Unhandled error in OnTagValueChange: {ex.Message}", "OnTagValueChange", ex);
+            }
+        }
+
+
+
         public void SubscribeToDataChanges()
         {
             try
@@ -943,149 +1363,42 @@ namespace OpcUaClient
 
                 foreach (var tag in TagList)
                 {
-                    try
+                    if (string.IsNullOrWhiteSpace(tag.NodeID))
+                        throw new OPCUAException("Tag.NodeID is null or empty.", "SubscribeToDataChanges", tag?.DisplayName);
+
+                    // Prime expected UA type/value rank for later writes
+                    EnsureTagMetadata(tag);
+
+                    Debug.WriteLine($"[Subscribe] Adding monitored item: {tag.DisplayName} ({tag.NodeID})");
+
+                    var monitoredItem = new MonitoredItem(subscription.DefaultItem)
                     {
-                        if (string.IsNullOrWhiteSpace(tag.NodeID))
-                            throw new OPCUAException("Tag.NodeID is null or empty.", "SubscribeToDataChanges", tag?.DisplayName);
+                        StartNodeId = tag.NodeID,
+                        AttributeId = Attributes.Value,
+                        DisplayName = tag.DisplayName,
+                        SamplingInterval = 1000
+                    };
 
-                        Debug.WriteLine($"[Subscribe] Adding monitored item: {tag.DisplayName} ({tag.NodeID})");
-
-                        var monitoredItem = new MonitoredItem(subscription.DefaultItem)
-                        {
-                            StartNodeId = tag.NodeID,
-                            AttributeId = Attributes.Value,
-                            DisplayName = tag.DisplayName,
-                            SamplingInterval = 1000
-                        };
-
-                        monitoredItem.Notification += OnTagValueChange;
-                        subscription.AddItem(monitoredItem);
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new OPCUAException($"Failed to create monitored item for tag '{tag?.DisplayName}': {ex.Message}", "SubscribeToDataChanges", tag?.NodeID);
-                    }
+                    monitoredItem.Notification += OnTagValueChange;
+                    subscription.AddItem(monitoredItem);
                 }
 
-                try
-                {
-                    // The correct order: Add, Create, THEN ApplyChanges!
-                    OPCConnection.AddSubscription(subscription);
-                    subscription.Create();
-                    subscription.ApplyChanges();
-                }
-                catch (Exception ex)
-                {
-                    throw new OPCUAException("Failed to create and register subscription with the OPC server.", "SubscribeToDataChanges", ex);
-                }
+                OPCConnection.AddSubscription(subscription);
+                subscription.Create();
+                subscription.ApplyChanges();
 
                 _subscriptions.Add(subscription);
                 Debug.WriteLine($"[Subscribe] Subscription created successfully with {subscription.MonitoredItemCount} items.");
             }
-            catch (OPCUAException)
-            {
-                throw;
-            }
+            catch (OPCUAException) { throw; }
             catch (Exception ex)
             {
                 throw new OPCUAException($"Unexpected error during subscription setup: {ex.Message}", "SubscribeToDataChanges", ex);
             }
         }
 
-        /// <summary>
-        /// Handles OPC UA data change notifications for all monitored items (tags).
-        /// 
-        /// This method is triggered by the OPC UA stack whenever a value change is reported for any monitored tag.
-        /// For each data change notification:
-        ///   - Locates the corresponding <see cref="Tag"/> object in <see cref="TagList"/> by matching <see cref="DisplayName"/>.
-        ///   - Updates the <see cref="Tag"/>'s value, timestamp, source timestamp, and status code.
-        ///   - Invokes the per-tag <see cref="Tag.ValueChanged"/> event, allowing consumers to handle tag-specific logic directly.
-        ///   - Optionally, also raises a session-level <see cref="TagChanged"/> event for general listeners.
-        /// 
-        /// <para><b>Per-tag event usage:</b> By subscribing to the <see cref="Tag.ValueChanged"/> event on individual tags,
-        /// consumers can register separate callback functions for each tag, enabling tag-specific processing or UI updates.
-        /// </para>
-        /// 
-        /// <para><b>Example usage:</b><code>
-        /// // 1. Create Tag objects and subscribe to ValueChanged event
-        /// var temperatureTag = new Tag { DisplayName = "Temperature", NodeID = "ns=2;s=Temperature" };
-        /// temperatureTag.ValueChanged += tag =>
-        /// {
-        ///     Console.WriteLine($@"Temperature changed! New value: {tag.CurrentValue}, at {tag.LastUpdatedTime}");
-        ///     // Custom logic here, e.g., alert if too high.
-        /// };
-        /// 
-        /// var pressureTag = new Tag { DisplayName = "Pressure", NodeID = "ns=2;s=Pressure" };
-        /// pressureTag.ValueChanged += tag =>
-        /// {
-        ///     Console.WriteLine($@"Pressure update: {tag.CurrentValue}");
-        ///     // More custom logic...
-        /// };
-        /// 
-        /// // 2. Add tags to your OPCSession.TagList (before subscribing)
-        /// mySession.TagList.Add(temperatureTag);
-        /// mySession.TagList.Add(pressureTag);
-        /// 
-        /// // 3. Subscribe to data changes for all tags (this sets up monitoring)
-        /// mySession.SubscribeToDataChanges();
-        /// 
-        /// // 4. (Optionally) Listen for the session-wide event if you want to handle all tags together
-        /// mySession.TagChanged += (sender, e) =>
-        /// {
-        ///     Console.WriteLine($@"Tag [{e.DisplayName}] changed to {e.NewValue}");
-        /// };
-        /// </code></para>
-        /// 
-        /// <para><b>Notes:</b>
-        /// - Make sure to add tags to <see cref="TagList"/> and subscribe to their <see cref="ValueChanged"/> event <b>before</b> calling <see cref="SubscribeToDataChanges"/>.
-        /// - If no handler is registered for a tag, value changes will not trigger tag-specific logic but will still update the tag object and trigger the global event if used.
-        /// </para>
-        /// 
-        /// <exception cref="OPCUAException">
-        /// Thrown if monitored item or event args are null, or if the tag cannot be found in <see cref="TagList"/>.
-        /// </exception>
-        private void OnTagValueChange(MonitoredItem item, MonitoredItemNotificationEventArgs e)
-        {
-            try
-            {
-                if (item == null || e == null)
-                    throw new OPCUAException("Invalid event arguments in OnTagValueChange.", "OnTagValueChange");
 
-                foreach (var value in item.DequeueValues())
-                {
-                    try
-                    {
-                        var tag = TagList.FirstOrDefault(t => t.DisplayName == item.DisplayName);
-                        if (tag == null)
-                            throw new OPCUAException($"No matching tag found for monitored item: {item.DisplayName}", "OnTagValueChange");
 
-                        tag.CurrentValue = value.Value != null ? value.Value.ToString() : null;
-                        tag.LastUpdatedTime = DateTime.Now;
-                        tag.LastSourceTimeStamp = value.SourceTimestamp.ToLocalTime();
-                        tag.StatusCode = value.StatusCode.ToString();
 
-                        // Raise the per-tag event
-                        tag.RaiseValueChanged();
-
-                        // Optionally, still fire the overall TagChanged event if you want to support both
-                        TagChanged?.Invoke(this, new TagValueChangedEventArgs(tag.DisplayName, tag.CurrentValue, tag.LastUpdatedTime));
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new OPCUAException($"Error processing value for tag '{item.DisplayName}': {ex.Message}", "OnTagValueChange", ex);
-                    }
-                }
-            }
-            catch (OPCUAException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                throw new OPCUAException($"Unhandled error in OnTagValueChange: {ex.Message}", "OnTagValueChange", ex);
-            }
-        }
-
-        #endregion
     }
 }

@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Opc.Ua;
+using System;
 
 namespace OpcUAClient
 {
@@ -70,5 +71,14 @@ namespace OpcUAClient
             DisplayName = displayName;
             NodeID = nodeID;
         }
+
+
+
+        // In your Tag class:
+        public NodeId ExpectedDataTypeId { get; set; }          // UA DataType NodeId (e.g., UInt32)
+        public int ExpectedValueRank { get; set; } = ValueRanks.Scalar; // Scalar or array rank
+        public object CurrentValueObj { get; set; }              // Preserve real CLR value
+        public BuiltInType? CurrentBuiltInType { get; set; }     // Convenience (e.g., UInt32, Double)
+        public TypeInfo CurrentTypeInfo { get; set; }            // UA TypeInfo of current value
     }
 }

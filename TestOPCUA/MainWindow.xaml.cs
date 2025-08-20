@@ -19,7 +19,7 @@ namespace TestOPCUA
         OPCSession opcSession;
 
         //public static Tag RequestType => new Tag("RequestType", "ns=2;s=RequestType");
-        public static Tag RequestType => new Tag("CEL_FBC_COUNTER_01.RequestType", "ns=2;s=CEL_FBC_COUNTER_01.Controller.RequestType");
+        public static Tag RequestType => new Tag("RequestType", "ns=2;s=CEL_FBC_COUNTER_01.Controller.RequestType");
 
         private void Button_Click(object sender, RoutedEventArgs e)
         {
@@ -69,7 +69,7 @@ namespace TestOPCUA
             Debug.WriteLine("Tags added to TagList.");
 
             Debug.WriteLine("Calling InitializeOPCUAClient...");
-            //opcSession.InitializeOPCUAClient();
+            opcSession.InitializeOPCUAClient();
 
             if (!opcSession.Connected)
             {
@@ -135,7 +135,7 @@ namespace TestOPCUA
                 return;
             }
 
-            var valueToWrite = "1234";
+            var valueToWrite = 1234;
 
             Debug.WriteLine($"Attempting to write value '{valueToWrite}' (type: {valueToWrite.GetType()}) to tag: {RequestType.NodeID}");
 
@@ -153,7 +153,7 @@ namespace TestOPCUA
 
 
             var before = opcSession.ReadNodeValue<string>(RequestType);
-            opcSession.WriteNodeValue(RequestType, "fhsdajkfhlasdk");
+            opcSession.WriteNodeValue(RequestType, "1234");
             var after = opcSession.ReadNodeValue<string>(RequestType);
             Debug.WriteLine($"Before: {before}, After: {after}");
         }
